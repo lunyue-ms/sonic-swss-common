@@ -1,6 +1,7 @@
 #ifndef _EVENTS_H
 #define _EVENTS_H
 
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <map>
