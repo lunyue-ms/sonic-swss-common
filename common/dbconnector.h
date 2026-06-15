@@ -139,21 +139,33 @@ public:
 
     static std::vector<std::string> getDbList(const std::string &netns = EMPTY_NAMESPACE, const std::string &containerName=EMPTY_CONTAINERNAME);
     static std::vector<std::string> getDbList(const SonicDBKey &key);
-    static bool isInit() { return m_init; };
-    static bool isGlobalInit() { return m_global_init; };
+    static bool isInit() { return cfgData().m_init; };
+    static bool isGlobalInit() { return cfgData().m_global_init; };
     static std::map<std::string, RedisInstInfo> getInstanceList(const std::string &netns = EMPTY_NAMESPACE, const std::string &containerName=EMPTY_CONTAINERNAME);
     static std::map<std::string, RedisInstInfo> getInstanceList(const SonicDBKey &key);
 
 private:
-    static std::recursive_mutex m_db_info_mutex;
-    // { {containerName, namespace}, { instName, { unix_socket_path, hostname, port } } }
-    static std::unordered_map<SonicDBKey, std::map<std::string, RedisInstInfo>, SonicDBKeyHash> m_inst_info;
-    // { {containerName, namespace}, { dbName, {instName, dbId, separator} } }
-    static std::unordered_map<SonicDBKey, std::unordered_map<std::string, SonicDBInfo>, SonicDBKeyHash> m_db_info;
-    // { {containerName, namespace}, { dbId, separator } }
-    static std::unordered_map<SonicDBKey, std::unordered_map<int, std::string>, SonicDBKeyHash> m_db_separator;
-    static bool m_init;
-    static bool m_global_init;
+    // All static configuration state is grouped into a single holder accessed
+    // through a function-local static (Meyers singleton). Constructing it on
+    // first use makes SonicDBConfig robust to C++ static initialization order
+    // across translation units: a global DBConnector constructed during static
+    // initialization (e.g. AclOrch::m_countersDb) can reach initialize() before
+    // these containers would otherwise be constructed. When swss-common is
+    // statically linked that previously indexed a zero-initialized unordered_map
+    // (bucket_count == 0) and crashed with SIGFPE.
+    struct ConfigData
+    {
+        std::recursive_mutex m_db_info_mutex;
+        // { {containerName, namespace}, { instName, { unix_socket_path, hostname, port } } }
+        std::unordered_map<SonicDBKey, std::map<std::string, RedisInstInfo>, SonicDBKeyHash> m_inst_info;
+        // { {containerName, namespace}, { dbName, {instName, dbId, separator} } }
+        std::unordered_map<SonicDBKey, std::unordered_map<std::string, SonicDBInfo>, SonicDBKeyHash> m_db_info;
+        // { {containerName, namespace}, { dbId, separator } }
+        std::unordered_map<SonicDBKey, std::unordered_map<int, std::string>, SonicDBKeyHash> m_db_separator;
+        bool m_init = false;
+        bool m_global_init = false;
+    };
+    static ConfigData& cfgData();
     static void parseDatabaseConfig(const std::string &file,
                                     std::map<std::string, RedisInstInfo> &inst_entry,
                                     std::unordered_map<std::string, SonicDBInfo> &db_entry,

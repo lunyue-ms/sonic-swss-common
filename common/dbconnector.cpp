@@ -89,11 +89,11 @@ void SonicDBConfig::parseDatabaseConfig(const string &file,
 void SonicDBConfig::initializeGlobalConfig(const string &file, bool ignore_nonexistent)
 {
     std::string dir_name;
-    std::lock_guard<std::recursive_mutex> guard(m_db_info_mutex);
+    std::lock_guard<std::recursive_mutex> guard(cfgData().m_db_info_mutex);
 
     SWSS_LOG_ENTER();
 
-    if (m_global_init)
+    if (cfgData().m_global_init)
     {
         SWSS_LOG_ERROR("SonicDBConfig Global config is already initialized");
         return;
@@ -134,7 +134,7 @@ void SonicDBConfig::initializeGlobalConfig(const string &file, bool ignore_nonex
 
                 // If database_config.json is already initlized via SonicDBConfig::initialize
                 // skip initializing it here again.
-                if (key.isEmpty() && m_init)
+                if (key.isEmpty() && cfgData().m_init)
                 {
                     continue;
                 }
@@ -145,15 +145,15 @@ void SonicDBConfig::initializeGlobalConfig(const string &file, bool ignore_nonex
                 // config file for the dpu it is managing.
                 if (!inst_entry.empty() || !db_entry.empty() || !separator_entry.empty())
                 {
-                    m_inst_info[key] = inst_entry;
-                    m_db_info[key] = db_entry;
-                    m_db_separator[key] = separator_entry;
+                    cfgData().m_inst_info[key] = inst_entry;
+                    cfgData().m_db_info[key] = db_entry;
+                    cfgData().m_db_separator[key] = separator_entry;
                 }
 
                 if(key.isEmpty())
                 {
                     // Make regular init also done
-                    m_init = true;
+                    cfgData().m_init = true;
                 }
             }
         }
@@ -176,7 +176,7 @@ void SonicDBConfig::initializeGlobalConfig(const string &file, bool ignore_nonex
 
 
     // Set it as the global config file is already parsed and init done.
-    m_global_init = true;
+    cfgData().m_global_init = true;
 }
 
 void SonicDBConfig::initialize(const string &file)
@@ -184,11 +184,11 @@ void SonicDBConfig::initialize(const string &file)
     std::unordered_map<std::string, SonicDBInfo> db_entry;
     std::map<std::string, RedisInstInfo> inst_entry;
     std::unordered_map<int, std::string> separator_entry;
-    std::lock_guard<std::recursive_mutex> guard(m_db_info_mutex);
+    std::lock_guard<std::recursive_mutex> guard(cfgData().m_db_info_mutex);
 
     SWSS_LOG_ENTER();
 
-    if (m_init)
+    if (cfgData().m_init)
     {
         SWSS_LOG_ERROR("SonicDBConfig already initialized");
         throw runtime_error("SonicDBConfig already initialized");
@@ -196,29 +196,29 @@ void SonicDBConfig::initialize(const string &file)
 
     SonicDBKey empty_key;
     parseDatabaseConfig(file, inst_entry, db_entry, separator_entry);
-    m_inst_info.emplace(empty_key, std::move(inst_entry));
-    m_db_info.emplace(empty_key, std::move(db_entry));
-    m_db_separator.emplace(empty_key, std::move(separator_entry));
+    cfgData().m_inst_info.emplace(empty_key, std::move(inst_entry));
+    cfgData().m_db_info.emplace(empty_key, std::move(db_entry));
+    cfgData().m_db_separator.emplace(empty_key, std::move(separator_entry));
 
     // Set it as the config file is already parsed and init done.
-    m_init = true;
+    cfgData().m_init = true;
 }
 
 // This API is used to reset the SonicDBConfig class.
 // And then user can call initialize with different config file.
 void SonicDBConfig::reset()
 {
-    std::lock_guard<std::recursive_mutex> guard(m_db_info_mutex);
-    m_init = false;
-    m_global_init = false;
-    m_inst_info.clear();
-    m_db_info.clear();
-    m_db_separator.clear();
+    std::lock_guard<std::recursive_mutex> guard(cfgData().m_db_info_mutex);
+    cfgData().m_init = false;
+    cfgData().m_global_init = false;
+    cfgData().m_inst_info.clear();
+    cfgData().m_db_info.clear();
+    cfgData().m_db_separator.clear();
 }
 
 void SonicDBConfig::validateNamespace(const string &netns)
 {
-    std::lock_guard<std::recursive_mutex> guard(m_db_info_mutex);
+    std::lock_guard<std::recursive_mutex> guard(cfgData().m_db_info_mutex);
 
     SWSS_LOG_ENTER();
 
@@ -226,13 +226,13 @@ void SonicDBConfig::validateNamespace(const string &netns)
     if(!netns.empty())
     {
         // If global initialization is not done, ask user to initialize global DB Config first.
-        if (!m_global_init)
+        if (!cfgData().m_global_init)
         {
             SWSS_LOG_THROW("Initialize global DB config using API SonicDBConfig::initializeGlobalConfig");
         }
 
         // Check if the namespace is valid, check if this is a key in either of this map
-        for (const auto &entry: m_inst_info)
+        for (const auto &entry: cfgData().m_inst_info)
         {
             if (entry.first.netns == netns)
             {
@@ -245,22 +245,22 @@ void SonicDBConfig::validateNamespace(const string &netns)
 
 SonicDBInfo& SonicDBConfig::getDbInfo(const std::string &dbName, const SonicDBKey &key)
 {
-    std::lock_guard<std::recursive_mutex> guard(m_db_info_mutex);
+    std::lock_guard<std::recursive_mutex> guard(cfgData().m_db_info_mutex);
 
     SWSS_LOG_ENTER();
 
-    if (!m_init)
+    if (!cfgData().m_init)
         initialize(DEFAULT_SONIC_DB_CONFIG_FILE);
 
     if (!key.isEmpty())
     {
-        if (!m_global_init)
+        if (!cfgData().m_global_init)
         {
             SWSS_LOG_THROW("Initialize global DB config using API SonicDBConfig::initializeGlobalConfig");
         }
     }
-    auto foundEntry = m_db_info.find(key);
-    if (foundEntry == m_db_info.end())
+    auto foundEntry = cfgData().m_db_info.find(key);
+    if (foundEntry == cfgData().m_db_info.end())
     {
         string msg = "Key " + key.toString() + " is not a valid key name in config file";
         SWSS_LOG_ERROR("%s", msg.c_str());
@@ -279,22 +279,22 @@ SonicDBInfo& SonicDBConfig::getDbInfo(const std::string &dbName, const SonicDBKe
 
 RedisInstInfo& SonicDBConfig::getRedisInfo(const std::string &dbName, const SonicDBKey &key)
 {
-    std::lock_guard<std::recursive_mutex> guard(m_db_info_mutex);
+    std::lock_guard<std::recursive_mutex> guard(cfgData().m_db_info_mutex);
 
     SWSS_LOG_ENTER();
 
-    if (!m_init)
+    if (!cfgData().m_init)
         initialize(DEFAULT_SONIC_DB_CONFIG_FILE);
 
     if (!key.isEmpty())
     {
-        if (!m_global_init)
+        if (!cfgData().m_global_init)
         {
             SWSS_LOG_THROW("Initialize global DB config using API SonicDBConfig::initializeGlobalConfig");
         }
     }
-    auto foundEntry = m_inst_info.find(key);
-    if (foundEntry == m_inst_info.end())
+    auto foundEntry = cfgData().m_inst_info.find(key);
+    if (foundEntry == cfgData().m_inst_info.end())
     {
         string msg = "Key " + key.toString() + " is not a valid key name in Redis instances in config file";
         SWSS_LOG_ERROR("%s", msg.c_str());
@@ -360,20 +360,20 @@ string SonicDBConfig::getSeparator(int dbId, const string &netns, const std::str
 
 std::string SonicDBConfig::getSeparator(int dbId, const SonicDBKey &key)
 {
-    std::lock_guard<std::recursive_mutex> guard(m_db_info_mutex);
+    std::lock_guard<std::recursive_mutex> guard(cfgData().m_db_info_mutex);
 
-    if (!m_init)
+    if (!cfgData().m_init)
         initialize(DEFAULT_SONIC_DB_CONFIG_FILE);
 
     if (!key.isEmpty())
     {
-        if (!m_global_init)
+        if (!cfgData().m_global_init)
         {
             SWSS_LOG_THROW("Initialize global DB config using API SonicDBConfig::initializeGlobalConfig");
         }
     }
-    auto foundEntry = m_db_separator.find(key);
-    if (foundEntry == m_db_separator.end())
+    auto foundEntry = cfgData().m_db_separator.find(key);
+    if (foundEntry == cfgData().m_db_separator.end())
     {
         string msg = "Key " + key.toString() + " is not a valid key name in config file";
         SWSS_LOG_ERROR("%s", msg.c_str());
@@ -451,13 +451,13 @@ int SonicDBConfig::getDbPort(const string &dbName, const SonicDBKey &key)
 vector<string> SonicDBConfig::getNamespaces()
 {
     set<string> list;
-    std::lock_guard<std::recursive_mutex> guard(m_db_info_mutex);
+    std::lock_guard<std::recursive_mutex> guard(cfgData().m_db_info_mutex);
 
-    if (!m_init)
+    if (!cfgData().m_init)
         initialize(DEFAULT_SONIC_DB_CONFIG_FILE);
 
     // This API returns back all namespaces including '' representing global ns.
-    for (auto it = m_inst_info.cbegin(); it != m_inst_info.cend(); ++it) {
+    for (auto it = cfgData().m_inst_info.cbegin(); it != cfgData().m_inst_info.cend(); ++it) {
         list.insert(it->first.netns);
     }
 
@@ -467,13 +467,13 @@ vector<string> SonicDBConfig::getNamespaces()
 vector<SonicDBKey> SonicDBConfig::getDbKeys()
 {
     vector<SonicDBKey> keys;
-    std::lock_guard<std::recursive_mutex> guard(m_db_info_mutex);
+    std::lock_guard<std::recursive_mutex> guard(cfgData().m_db_info_mutex);
 
-    if (!m_init)
+    if (!cfgData().m_init)
         initialize(DEFAULT_SONIC_DB_CONFIG_FILE);
 
     // This API returns back all db keys.
-    for (auto it = m_inst_info.cbegin(); it != m_inst_info.cend(); ++it) {
+    for (auto it = cfgData().m_inst_info.cbegin(); it != cfgData().m_inst_info.cend(); ++it) {
         keys.push_back(it->first);
     }
 
@@ -490,15 +490,15 @@ std::vector<std::string> SonicDBConfig::getDbList(const std::string &netns, cons
 
 std::vector<std::string> SonicDBConfig::getDbList(const SonicDBKey &key)
 {
-    std::lock_guard<std::recursive_mutex> guard(m_db_info_mutex);
-    if (!m_init)
+    std::lock_guard<std::recursive_mutex> guard(cfgData().m_db_info_mutex);
+    if (!cfgData().m_init)
     {
         initialize();
     }
     validateNamespace(key.netns);
 
     std::vector<std::string> dbNames;
-    for (auto& imap: m_db_info.at(key))
+    for (auto& imap: cfgData().m_db_info.at(key))
     {
         dbNames.push_back(imap.first);
     }
@@ -515,15 +515,15 @@ map<string, RedisInstInfo> SonicDBConfig::getInstanceList(const std::string &net
 
 map<string, RedisInstInfo> SonicDBConfig::getInstanceList(const SonicDBKey &key)
 {
-    if (!m_init)
+    if (!cfgData().m_init)
     {
         initialize();
     }
     validateNamespace(key.netns);
 
     map<string, RedisInstInfo> result;
-    auto iterator = m_inst_info.find(key);
-    if (iterator != m_inst_info.end()) {
+    auto iterator = cfgData().m_inst_info.find(key);
+    if (iterator != cfgData().m_inst_info.end()) {
         return iterator->second;
     }
 
@@ -532,12 +532,12 @@ map<string, RedisInstInfo> SonicDBConfig::getInstanceList(const SonicDBKey &key)
 
 constexpr const char *SonicDBConfig::DEFAULT_SONIC_DB_CONFIG_FILE;
 constexpr const char *SonicDBConfig::DEFAULT_SONIC_DB_GLOBAL_CONFIG_FILE;
-std::recursive_mutex SonicDBConfig::m_db_info_mutex;
-unordered_map<SonicDBKey, std::map<std::string, RedisInstInfo>, SonicDBKeyHash> SonicDBConfig::m_inst_info;
-unordered_map<SonicDBKey, std::unordered_map<std::string, SonicDBInfo>, SonicDBKeyHash> SonicDBConfig::m_db_info;
-unordered_map<SonicDBKey, std::unordered_map<int, std::string>, SonicDBKeyHash> SonicDBConfig::m_db_separator;
-bool SonicDBConfig::m_init = false;
-bool SonicDBConfig::m_global_init = false;
+SonicDBConfig::ConfigData& SonicDBConfig::cfgData()
+{
+    // Meyers singleton: constructed on first use, thread-safe since C++11.
+    static ConfigData instance;
+    return instance;
+}
 
 constexpr const char *RedisContext::DEFAULT_UNIXSOCKET;
 
