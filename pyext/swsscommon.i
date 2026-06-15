@@ -39,6 +39,7 @@
 #include "consumertable.h"
 #include "subscriberstatetable.h"
 #ifdef ENABLE_YANG_MODULES
+#include "cfg_schema.h"
 #include "decoratortable.h"
 #include "defaultvalueprovider.h"
 #include "decoratorsubscriberstatetable.h"
@@ -52,8 +53,8 @@
 #include "status_code_util.h"
 #include "redis_table_waiter.h"
 #include "restart_waiter.h"
-#include "zmqserver.h"
 #include "zmqclient.h"
+#include "zmqserver.h"
 #include "zmqconsumerstatetable.h"
 #include "zmqproducerstatetable.h"
 #include <memory>
@@ -76,6 +77,8 @@
 %template(FieldValuePair) std::pair<std::string, std::string>;
 %template(FieldValuePairs) std::vector<std::pair<std::string, std::string>>;
 %template(FieldValuePairsList) std::vector<std::vector<std::pair<std::string, std::string>>>;
+%template(KeyFieldValuePairs) std::pair<std::string, std::vector<std::pair<std::string, std::string>>>;
+%template(KeyFieldValuePairsList) std::vector<std::pair<std::string, std::vector<std::pair<std::string, std::string>>>>;
 %template(FieldValueMap) std::map<std::string, std::string>;
 %template(VectorString) std::vector<std::string>;
 %template(ScanResult) std::pair<int64_t, std::vector<std::string>>;
@@ -265,42 +268,16 @@ T castSelectableObj(swss::Selectable *temp)
 %newobject swss::DBConnector::newConnector;
 
 %include "schema.h"
-// Fix SWIG-generated wrapper code for static constexpr const char* members.
-// SWIG generates `char *result` for const char* variables, causing a const
-// correctness error in C++.
-// - Python: %naturalvar wraps by value (std::string), preserving class attributes.
-// - Go: %naturalvar doesn't help, so use %extend/_get() + %ignore instead.
-#ifdef SWIGGO
-%extend swss::SonicDBConfig {
-    static const char *DEFAULT_SONIC_DB_CONFIG_FILE_get() {
-        return swss::SonicDBConfig::DEFAULT_SONIC_DB_CONFIG_FILE;
-    }
-    static const char *DEFAULT_SONIC_DB_GLOBAL_CONFIG_FILE_get() {
-        return swss::SonicDBConfig::DEFAULT_SONIC_DB_GLOBAL_CONFIG_FILE;
-    }
-}
-%ignore swss::SonicDBConfig::DEFAULT_SONIC_DB_CONFIG_FILE;
-%ignore swss::SonicDBConfig::DEFAULT_SONIC_DB_GLOBAL_CONFIG_FILE;
-%extend swss::RedisContext {
-    static const char *DEFAULT_UNIXSOCKET_get() {
-        return swss::RedisContext::DEFAULT_UNIXSOCKET;
-    }
-}
-%ignore swss::RedisContext::DEFAULT_UNIXSOCKET;
-%extend swss::DBConnector {
-    static const char *DEFAULT_UNIXSOCKET_get() {
-        return swss::DBConnector::DEFAULT_UNIXSOCKET;
-    }
-}
-%ignore swss::DBConnector::DEFAULT_UNIXSOCKET;
-#else
-%naturalvar swss::SonicDBConfig::DEFAULT_SONIC_DB_CONFIG_FILE;
-%naturalvar swss::SonicDBConfig::DEFAULT_SONIC_DB_GLOBAL_CONFIG_FILE;
-%naturalvar swss::RedisContext::DEFAULT_UNIXSOCKET;
-%naturalvar swss::DBConnector::DEFAULT_UNIXSOCKET;
-#endif
 %include "dbconnector.h"
 #ifdef ENABLE_YANG_MODULES
+%include "cfg_schema.h"
+// DefaultValueHelper exposes libyang schema-node pointers (lys_node* /
+// lysc_node*) whose type names differ between libyang1 and libyang3.
+// SWIG's preprocessor cannot see <libyang/libyang.h>, so it always takes
+// the libyang1 branch of the version shim — generating bindings that fail
+// to compile against libyang3 headers. The helper is internal; no Python
+// caller uses it. Skip it so the generated wrappers stay version-agnostic.
+%ignore swss::DefaultValueHelper;
 %include "defaultvalueprovider.h"
 #endif
 %include "sonicv2connector.h"
@@ -313,16 +290,6 @@ T castSelectableObj(swss::Selectable *temp)
 %include "redisreply.h"
 %include "redisselect.h"
 %include "redistran.h"
-#ifdef SWIGGO
-%extend swss::ConfigDBConnector_Native {
-    static const char *INIT_INDICATOR_get() {
-        return swss::ConfigDBConnector_Native::INIT_INDICATOR;
-    }
-}
-%ignore swss::ConfigDBConnector_Native::INIT_INDICATOR;
-#else
-%naturalvar swss::ConfigDBConnector_Native::INIT_INDICATOR;
-#endif
 %include "configdb.h"
 %include "zmqserver.h"
 %include "zmqclient.h"
@@ -332,6 +299,24 @@ T castSelectableObj(swss::Selectable *temp)
 %extend swss::DBConnector {
     %template(hgetall) hgetall<std::map<std::string, std::string>>;
 }
+
+%ignore swss::ZmqProducerStateTable::wait;
+
+%inline %{
+std::vector<std::pair<std::string, std::vector<swss::FieldValueTuple>>> zmqWait(swss::ZmqProducerStateTable &p)
+{
+    std::vector<std::pair<std::string, std::vector<swss::FieldValueTuple>>>  ret;
+    std::string db_name;
+    std::string table_name;
+    std::vector<std::shared_ptr<swss::KeyOpFieldsValuesTuple>> kcos_ptr;
+    p.wait(db_name, table_name, kcos_ptr);
+    for (const auto kco : kcos_ptr)
+    {
+        ret.push_back(std::pair<std::string, std::vector<swss::FieldValueTuple>>{kfvKey(*kco), kfvFieldsValues(*kco)});
+    }
+    return ret;
+}
+%}
 
 %ignore swss::TableEntryPoppable::pops(std::deque<KeyOpFieldsValuesTuple> &, const std::string &);
 %apply std::vector<std::string>& OUTPUT {std::vector<std::string> &keys};
@@ -370,6 +355,58 @@ T castSelectableObj(swss::Selectable *temp)
 
 %include "producerstatetable.h"
 %include "zmqproducerstatetable.h"
+
+// Batched helpers for ZmqProducerStateTable. The native C++ overloads
+// (set/del/send taking std::vector<KeyOpFieldsValuesTuple>) are reachable
+// through SWIG only as opaque pointer types because std_vector.i does not
+// synthesize a default constructor for the underlying tuple element. These
+// %inline shims take parallel vectors of already-templated types and build
+// the tuple vector on the C++ side, which lets callers in Go / Python issue
+// a single batched ZMQ message.
+%inline %{
+namespace swss {
+static inline void zmqProducerBatchedSet(swss::ZmqProducerStateTable &p,
+                                         const std::vector<std::string> &keys,
+                                         const std::vector<std::vector<swss::FieldValueTuple>> &fvss)
+{
+    if (keys.size() != fvss.size())
+    {
+        throw std::invalid_argument("zmqProducerBatchedSet: keys.size() != fvss.size()");
+    }
+    std::vector<swss::KeyOpFieldsValuesTuple> kcos;
+    kcos.reserve(keys.size());
+    for (size_t i = 0; i < keys.size(); ++i)
+    {
+        kcos.emplace_back(keys[i], SET_COMMAND, fvss[i]);
+    }
+    p.set(kcos);
+}
+
+static inline void zmqProducerBatchedDel(swss::ZmqProducerStateTable &p,
+                                         const std::vector<std::string> &keys)
+{
+    p.del(keys);
+}
+
+static inline void zmqProducerBatchedSend(swss::ZmqProducerStateTable &p,
+                                          const std::vector<std::string> &keys,
+                                          const std::vector<std::string> &ops,
+                                          const std::vector<std::vector<swss::FieldValueTuple>> &fvss)
+{
+    if (keys.size() != ops.size() || keys.size() != fvss.size())
+    {
+        throw std::invalid_argument("zmqProducerBatchedSend: keys/ops/fvss size mismatch");
+    }
+    std::vector<swss::KeyOpFieldsValuesTuple> kcos;
+    kcos.reserve(keys.size());
+    for (size_t i = 0; i < keys.size(); ++i)
+    {
+        kcos.emplace_back(keys[i], ops[i], fvss[i]);
+    }
+    p.send(kcos);
+}
+} // namespace swss
+%}
 
 %apply std::string& OUTPUT {std::string &key};
 %apply std::string& OUTPUT {std::string &op};
