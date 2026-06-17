@@ -8,6 +8,10 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files(["LICENSE"])
 
+# common/cfg_schema.h is generated from the YANG models by gen_cfg_schema.py
+# (Makefile.am BUILT_SOURCES) at make time. The Bazel sandbox has no YANG
+# models, so a pre-generated snapshot is checked in and picked up by the
+# common/*.h glob below; schema.h #includes it for the CFG_*_TABLE_NAME macros.
 swss_common_hdrs = glob([
     "common/*.h",
     "common/*.hpp",
