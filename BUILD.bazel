@@ -11,16 +11,16 @@ exports_files(["LICENSE"])
 swss_common_hdrs = ["//common:hdrs"]
 
 swss_common_deps = [
-    "@bookworm//libhiredis-dev:libhiredis",
-    "@bookworm//nlohmann-json3-dev:nlohmann-json3",
+    "@trixie//libhiredis-dev:libhiredis",
+    "@trixie//nlohmann-json3-dev:nlohmann-json3",
     "@libnl3//:libnl_3",
     "@libnl3//:libnl_route_3",
     "@libnl3//:libnl_nf_3",
-    "@bookworm//libyang2-dev:libyang2",
-    "@bookworm//libzmq3-dev:libzmq3",
-    "@bookworm//uuid-dev:uuid",
-    "@bookworm//libboost-dev:libboost",
-    "@bookworm//libboost-serialization-dev:libboost-serialization",
+    "@trixie//libyang-dev:libyang",
+    "@trixie//libzmq3-dev:libzmq3",
+    "@trixie//uuid-dev:uuid",
+    "@trixie//libboost-dev:libboost",
+    "@trixie//libboost-serialization-dev:libboost-serialization",
 ]
 
 filegroup(
